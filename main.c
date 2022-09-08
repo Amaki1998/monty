@@ -1,97 +1,103 @@
 #include "monty.h"
 
+global_t vglo;
+
 /**
- * main - main function
- * @argc: argument counts
- * @argv: arguments passed
- * Return: success
+ * free_vglo - frees the global variables
+ *
+ * Return: no return
  */
-int main(int argc, char **argv)
+void free_vglo(void)
 {
-	FILE *file;
-	char *buff = NULL, *string;
-	size_t s = 0;
-	unsigned int linenum = 1;
-	stack_t *stk = NULL;
-
-	variables.check = 0;
-
-	if (argc != 2)
-	{
-		printf("USAGE: monty file\n");
-		exit(EXIT_FAILURE);
-	}
-	file = fopen(argv[1], "r");
-	if (file == NULL)
-	{
-		printf("Error: Can't open file %s\n", argv[1]);
-		exit(EXIT_FAILURE);
-	}
-	while (getline(&buff, &s, file) != -1)
-	{
-		if (*buff != '\n')
-		{
-			string = strtok(buff, "\n");
-			_tokenizer(string, &stk, linenum);
-		}
-		linenum++;
-	}
-	fclose(file);
-	free(buff);
-	if (stk != NULL)
-		free_stk(&stk, linenum);
-	return (EXIT_SUCCESS);
+	free_dlistint(vglo.head);
+	free(vglo.buffer);
+	fclose(vglo.fd);
 }
 
 /**
- * _tokenizer - function to tokenize strings and commands
- * @string: string to be tokenized
- * @stk: pointer to the stack
- * @linenum: line numbers
- * Return: void
+ * start_vglo - initializes the global variables
+ *
+ * @fd: file descriptor
+ * Return: no return
  */
-void _tokenizer(char *string, stack_t **stk, unsigned int linenum)
+void start_vglo(FILE *fd)
 {
-	char *token;
-	char *tokens;
-
-	token = strtok(string, " ");
-	if (token == NULL || *token == ' ' || *token == '\n' || *token == '#')
-		return;
-	if (strcmp(token, "push") == 0)
-	{
-		tokens = token;
-		token = strtok(NULL, " ");
-		if (!check_digit(token))
-		{
-			printf("L%d: usage: push integer\n", linenum);
-			free_stk(stk, linenum);
-			exit(EXIT_FAILURE);
-		}
-		variables.holder = atoi(token);
-		_ops(tokens, stk, linenum);
-	}
-	else
-		_ops(token, stk, linenum);
+	vglo.lifo = 1;
+	vglo.cont = 1;
+	vglo.arg = NULL;
+	vglo.head = NULL;
+	vglo.fd = fd;
+	vglo.buffer = NULL;
 }
 
 /**
- * check_digit - checks if string is a number
- * @token: string to check
- * Return: 1 if number, 0 if not
+ * check_input - checks if the file exists and if the file can
+ * be opened
+ *
+ * @argc: argument count
+ * @argv: argument vector
+ * Return: file struct
  */
-int check_digit(char *token)
+FILE *check_input(int argc, char *argv[])
 {
-	if (token == NULL)
-		return (0);
-	if (*token == '-')
-		token++;
-	while (*token != '\0')
+	FILE *fd;
+
+	if (argc == 1 || argc > 2)
 	{
-		if (!isdigit(*token))
-			return (0);
-		token++;
+		dprintf(2, "USAGE: monty file\n");
+		exit(EXIT_FAILURE);
 	}
-	token++;
-	return (1);
+
+	fd = fopen(argv[1], "r");
+
+	if (fd == NULL)
+	{
+		dprintf(2, "Error: Can't open file %s\n", argv[1]);
+		exit(EXIT_FAILURE);
+	}
+
+	return (fd);
+}
+
+/**
+ * main - Entry point
+ *
+ * @argc: argument count
+ * @argv: argument vector
+ * Return: 0 on success
+ */
+int main(int argc, char *argv[])
+{
+	void (*f)(stack_t **stack, unsigned int line_number);
+	FILE *fd;
+	size_t size = 256;
+	ssize_t nlines = 0;
+	char *lines[2] = {NULL, NULL};
+
+	fd = check_input(argc, argv);
+	start_vglo(fd);
+	nlines = getline(&vglo.buffer, &size, fd);
+	while (nlines != -1)
+	{
+		lines[0] = _strtoky(vglo.buffer, " \t\n");
+		if (lines[0] && lines[0][0] != '#')
+		{
+			f = get_opcodes(lines[0]);
+			if (!f)
+			{
+				dprintf(2, "L%u: ", vglo.cont);
+				dprintf(2, "unknown instruction %s\n", lines[0]);
+				free_vglo();
+				exit(EXIT_FAILURE);
+			}
+			vglo.arg = _strtoky(NULL, " \t\n");
+			f(&vglo.head, vglo.cont);
+		}
+		nlines = getline(&vglo.buffer, &size, fd);
+		vglo.cont++;
+	}
+
+	free_vglo();
+
+	return (0);
 }
